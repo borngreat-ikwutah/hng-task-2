@@ -1,0 +1,12 @@
+name = "hng-task-1"
+main = "src/index.ts"
+compatibility_date = "2026-04-17"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hng-task-1-db"
+database_id = "YOUR_D1_DATABASE_ID"
+
+[vars]
+NODE_ENV = "production"
