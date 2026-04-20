@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "hng-task-1-db"
-database_id = "1e28a386-9b75-4b79-bb82-9aca4fc68e25"
+database_id = "YOUR_D1_DATABASE_ID"
 
 [vars]
 NODE_ENV = "production"
