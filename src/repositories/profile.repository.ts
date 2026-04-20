@@ -1,0 +1,241 @@
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
+import { getDb } from "../db/client";
+import { profiles } from "../db/schema";
+
+export type ProfileRecord = typeof profiles.$inferSelect;
+export type NewProfileRecord = typeof profiles.$inferInsert;
+
+export type ProfileGender = "male" | "female";
+export type AgeGroup = "child" | "teenager" | "adult" | "senior";
+export type SortBy = "created_at" | "age" | "gender_probability";
+export type SortOrder = "asc" | "desc";
+
+export type ProfileFilters = {
+  gender?: ProfileGender;
+  countryId?: string;
+  ageGroup?: AgeGroup;
+  minAge?: number;
+  maxAge?: number;
+  q?: string;
+};
+
+export type PaginationOptions = {
+  page?: number;
+  limit?: number;
+};
+
+export type SortOptions = {
+  sortBy?: SortBy;
+  sortOrder?: SortOrder;
+};
+
+export type ProfileListResult = {
+  data: ProfileRecord[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+};
+
+type DbEnv = {
+  DB: D1Database;
+};
+
+function normalizeText(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function containsInsensitive(column: any, value: string) {
+  return ilike(column, `%${normalizeText(value)}%`);
+}
+
+function equalsInsensitive(column: any, value: string) {
+  return sql<boolean>`lower(${column}) = ${normalizeText(value)}`;
+}
+
+function buildConditions(filters: ProfileFilters) {
+  const conditions: any[] = [];
+
+  if (filters.gender) {
+    conditions.push(equalsInsensitive(profiles.gender, filters.gender));
+  }
+
+  if (filters.countryId) {
+    conditions.push(equalsInsensitive(profiles.countryId, filters.countryId));
+  }
+
+  if (filters.ageGroup) {
+    conditions.push(equalsInsensitive(profiles.ageGroup, filters.ageGroup));
+  }
+
+  if (typeof filters.minAge === "number") {
+    conditions.push(gte(profiles.age, filters.minAge));
+  }
+
+  if (typeof filters.maxAge === "number") {
+    conditions.push(lte(profiles.age, filters.maxAge));
+  }
+
+  if (filters.q && filters.q.trim()) {
+    const query = filters.q.trim();
+    conditions.push(
+      or(
+        containsInsensitive(profiles.name, query),
+        containsInsensitive(profiles.gender, query),
+        containsInsensitive(profiles.countryId, query),
+        containsInsensitive(profiles.ageGroup, query),
+      )!,
+    );
+  }
+
+  return conditions;
+}
+
+function buildOrder(sortBy: SortBy, sortOrder: SortOrder) {
+  switch (sortBy) {
+    case "age":
+      return sortOrder === "desc" ? [desc(profiles.age)] : [asc(profiles.age)];
+    case "gender_probability":
+      return sortOrder === "desc"
+        ? [desc(profiles.genderProbability)]
+        : [asc(profiles.genderProbability)];
+    case "created_at":
+    default:
+      return sortOrder === "desc"
+        ? [desc(profiles.createdAt)]
+        : [asc(profiles.createdAt)];
+  }
+}
+
+export async function findProfileById(
+  env: DbEnv,
+  id: string,
+): Promise<ProfileRecord | undefined> {
+  const db = getDb(env);
+  const rows = await db
+    .select()
+    .from(profiles)
+    .where(eq(profiles.id, id))
+    .limit(1);
+  return rows[0];
+}
+
+export async function findProfileByName(
+  env: DbEnv,
+  name: string,
+): Promise<ProfileRecord | undefined> {
+  const db = getDb(env);
+  const rows = await db
+    .select()
+    .from(profiles)
+    .where(sql<boolean>`lower(${profiles.name}) = ${normalizeText(name)}`)
+    .limit(1);
+  return rows[0];
+}
+
+export async function createProfile(
+  env: DbEnv,
+  profile: NewProfileRecord,
+): Promise<ProfileRecord> {
+  const db = getDb(env);
+  const rows = await db.insert(profiles).values(profile).returning();
+  return rows[0];
+}
+
+export async function upsertProfile(
+  env: DbEnv,
+  profile: NewProfileRecord,
+): Promise<ProfileRecord> {
+  const db = getDb(env);
+  const rows = await db
+    .insert(profiles)
+    .values(profile)
+    .onConflictDoUpdate({
+      target: profiles.name,
+      set: {
+        gender: profile.gender,
+        genderProbability: profile.genderProbability,
+        sampleSize: profile.sampleSize,
+        age: profile.age,
+        ageGroup: profile.ageGroup,
+        countryId: profile.countryId,
+        countryProbability: profile.countryProbability,
+        createdAt: profile.createdAt,
+      },
+    })
+    .returning();
+
+  return rows[0];
+}
+
+export async function deleteProfileById(
+  env: DbEnv,
+  id: string,
+): Promise<boolean> {
+  const db = getDb(env);
+  const rows = await db.delete(profiles).where(eq(profiles.id, id)).returning({
+    id: profiles.id,
+  });
+
+  return rows.length > 0;
+}
+
+export async function listProfiles(
+  env: DbEnv,
+  filters: ProfileFilters = {},
+  pagination: PaginationOptions = {},
+  sort: SortOptions = {},
+): Promise<ProfileListResult> {
+  const db = getDb(env);
+
+  const page = Math.max(1, pagination.page ?? 1);
+  const limit = Math.max(1, Math.min(100, pagination.limit ?? 10));
+  const offset = (page - 1) * limit;
+
+  const conditions = buildConditions(filters);
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const orderBy = buildOrder(
+    sort.sortBy ?? "created_at",
+    sort.sortOrder ?? "desc",
+  );
+
+  const dataQuery = db
+    .select()
+    .from(profiles)
+    .where(whereClause)
+    .orderBy(...orderBy)
+    .limit(limit)
+    .offset(offset);
+
+  const countQuery = db
+    .select({ total: count() })
+    .from(profiles)
+    .where(whereClause);
+
+  const [data, totalResult] = await Promise.all([dataQuery, countQuery]);
+
+  const total = totalResult[0]?.total ?? 0;
+  const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+  return {
+    data,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasNextPage: page < totalPages,
+  };
+}

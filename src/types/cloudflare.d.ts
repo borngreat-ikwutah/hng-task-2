@@ -2,8 +2,15 @@
 
 declare global {
   interface CloudflareEnv {
-    DATABASE_URL: string;
+    DB: D1Database;
+    DATABASE_URL?: string;
     NODE_ENV?: "development" | "test" | "production";
+  }
+
+  namespace Hono {
+    interface Env {
+      Bindings: CloudflareEnv;
+    }
   }
 }
 

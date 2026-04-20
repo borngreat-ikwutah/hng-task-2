@@ -1,54 +1,120 @@
-# HNG Task 1 Backend API
+# Task 2 Backend API
 
-This project is the backend solution for **HNG Task 1**. It accepts a name, calls three external public APIs, applies classification logic, stores the result in a database, and exposes a REST API for creating, retrieving, listing, and deleting profiles.
+This project is the backend solution for **HNG Task 2**. It is built with a **scalable, type-safe backend architecture** using **Hono**, **Drizzle ORM**, **Cloudflare D1**, **Zod**, and **Bun**.
 
-## Overview
+The codebase is organized to keep responsibilities separate and maintainable:
 
-When a request is made to create a profile, the service:
+- **Routes** handle HTTP wiring
+- **Controllers** handle request/response flow
+- **Services** handle business logic
+- **Repositories** handle database access
+- **Schemas** handle validation and typed contracts
+- **Utils** contain reusable helpers
+- **DB** contains schema and client setup
 
-1. validates the input name
-2. checks if the profile already exists
-3. calls the following external APIs in parallel:
-   - Genderize: `https://api.genderize.io?name={name}`
-   - Agify: `https://api.agify.io?name={name}`
-   - Nationalize: `https://api.nationalize.io?name={name}`
-4. applies classification rules
-5. stores the result in the database
-6. returns the created or existing profile
+---
 
-The service also supports filtering existing profiles by gender, country, and age group.
+## Architecture Overview
+
+The project follows a layered structure designed for growth:
+
+```text
+src/
+  app.ts
+  index.ts
+
+  routes/
+    profiles.route.ts
+
+  controllers/
+    profile.controller.ts
+
+  services/
+    profile.service.ts
+    external-profile.service.ts
+
+  repositories/
+    profile.repository.ts
+
+  schemas/
+    profile.schema.ts
+    query.schema.ts
+
+  db/
+    client.ts
+    schema.ts
+
+  lib/
+    external-apis.ts
+
+  utils/
+    uuid.ts
+    names.ts
+    age.ts
+    pagination.ts
+    errors.ts
+
+  env.ts
+```
+
+### Why this structure is scalable
+
+- Keeps route handlers thin
+- Makes business logic testable
+- Separates external API integration from database logic
+- Makes query parsing and filtering reusable
+- Makes future features easier to add without large refactors
 
 ---
 
 ## Features
 
-- Create profiles from a name
+- Create profiles from a submitted name
 - Prevent duplicate profile creation
-- Retrieve a single profile by ID
-- List all profiles
-- Filter profiles by:
-  - `gender`
-  - `country_id`
-  - `age_group`
+- Retrieve a profile by ID
+- List profiles with filtering
 - Delete profiles by ID
+- Strongly typed query validation
+- Rule-based natural language parsing
+- Offset-based pagination
+- UUID v7 profile IDs
 - CORS enabled for all origins
-- Zod validation for request and environment variables
-- Drizzle ORM for database access
+- Zod validation for request input
+- Drizzle ORM for typed database access
 
 ---
 
-## Data classification rules
+## Database Design
 
-### Age group
-Based on the Agify API response:
+### Profiles table
 
-- `0–12` → `child`
-- `13–19` → `teenager`
-- `20–59` → `adult`
-- `60+` → `senior`
+Each profile contains:
 
-### Nationality
-The nationality is determined by selecting the country with the highest probability from the Nationalize API response.
+- `id`
+- `name`
+- `gender`
+- `gender_probability`
+- `sample_size`
+- `age`
+- `age_group`
+- `country_id`
+- `country_probability`
+- `created_at`
+
+### UUID v7
+
+This project uses **UUID v7** for profile IDs.  
+UUID v7 is time-ordered, which makes it more suitable for indexed inserts and sorting behavior than random UUID v4.
+
+### Indexing
+
+To support filtering efficiently, add indexes for:
+
+- `gender`
+- `age`
+- `age_group`
+- `country_id`
+- `created_at`
 
 ---
 
@@ -60,80 +126,20 @@ The nationality is determined by selecting the country with the highest probabil
 Creates a new profile from a submitted name.
 
 #### Request body
+
 ```json
 {
-  "name": "ella"
+  "name": "emmanuel"
 }
 ```
 
-#### Success response: 201 Created
+#### Success response: `201 Created`
+
 ```json
 {
   "status": "success",
   "data": {
-    "id": "b3f9c1e2-7d4a-4c91-9c2a-1f0a8e5b6d12",
-    "name": "ella",
-    "gender": "female",
-    "gender_probability": 0.99,
-    "sample_size": 1234,
-    "age": 46,
-    "age_group": "adult",
-    "country_id": "DRC",
-    "country_probability": 0.85,
-    "created_at": "2026-04-01T12:00:00Z"
-  }
-}
-```
-
-#### Duplicate name response: 200 OK
-If the same name is submitted again, the existing profile is returned.
-
-```json
-{
-  "status": "success",
-  "message": "Profile already exists",
-  "data": {
-    "id": "b3f9c1e2-7d4a-4c91-9c2a-1f0a8e5b6d12",
-    "name": "ella",
-    "gender": "female",
-    "gender_probability": 0.99,
-    "sample_size": 1234,
-    "age": 46,
-    "age_group": "adult",
-    "country_id": "DRC",
-    "country_probability": 0.85,
-    "created_at": "2026-04-01T12:00:00Z"
-  }
-}
-```
-
-#### Error responses
-- `400 Bad Request` — missing or empty name
-- `422 Unprocessable Entity` — invalid type
-- `502 Bad Gateway` — invalid upstream response from Genderize, Agify, or Nationalize
-- `500 Internal Server Error` — unexpected server failure
-
-Example error response:
-```json
-{
-  "status": "error",
-  "message": "Missing or empty name"
-}
-```
-
----
-
-### 2. Get Single Profile
-`GET /api/profiles/{id}`
-
-Returns a single profile by its ID.
-
-#### Success response: 200 OK
-```json
-{
-  "status": "success",
-  "data": {
-    "id": "b3f9c1e2-7d4a-4c91-9c2a-1f0a8e5b6d12",
+    "id": "018f3f64-7b7c-7d5f-9f1e-b19f9f0e2a10",
     "name": "emmanuel",
     "gender": "male",
     "gender_probability": 0.99,
@@ -141,38 +147,103 @@ Returns a single profile by its ID.
     "age": 25,
     "age_group": "adult",
     "country_id": "NG",
-    "country_probability": 0.85,
+    "country_probability": 0.84,
+    "created_at": "2026-04-01T12:00:00Z"
+  }
+}
+```
+
+#### Duplicate response: `200 OK`
+
+```json
+{
+  "status": "success",
+  "message": "Profile already exists",
+  "data": {
+    "id": "018f3f64-7b7c-7d5f-9f1e-b19f9f0e2a10",
+    "name": "emmanuel",
+    "gender": "male",
+    "gender_probability": 0.99,
+    "sample_size": 1234,
+    "age": 25,
+    "age_group": "adult",
+    "country_id": "NG",
+    "country_probability": 0.84,
+    "created_at": "2026-04-01T12:00:00Z"
+  }
+}
+```
+
+#### Validation errors
+
+- `400 Bad Request` — invalid or missing values
+- `422 Unprocessable Entity` — wrong input type
+
+---
+
+### 2. Get Profile by ID
+`GET /api/profiles/{id}`
+
+Returns a single profile by ID.
+
+#### Success response: `200 OK`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "018f3f64-7b7c-7d5f-9f1e-b19f9f0e2a10",
+    "name": "emmanuel",
+    "gender": "male",
+    "gender_probability": 0.99,
+    "sample_size": 1234,
+    "age": 25,
+    "age_group": "adult",
+    "country_id": "NG",
+    "country_probability": 0.84,
     "created_at": "2026-04-01T12:00:00Z"
   }
 }
 ```
 
 #### Error responses
-- `404 Not Found` — profile not found
-- `500 Internal Server Error` — unexpected failure
+
+- `404 Not Found` — profile does not exist
+- `422 Unprocessable Entity` — invalid ID format
 
 ---
 
-### 3. Get All Profiles
+### 3. List Profiles
 `GET /api/profiles`
 
-Returns all profiles, with optional filtering.
+Returns a list of profiles with typed filtering and pagination.
 
-#### Optional query parameters
+#### Supported query parameters
+
 - `gender`
 - `country_id`
 - `age_group`
-
-Query parameters are case-insensitive.
+- `min_age`
+- `max_age`
+- `page`
+- `limit`
+- `sort_by`
+- `order`
+- `q`
 
 #### Example
-`GET /api/profiles?gender=male&country_id=NG`
 
-#### Success response: 200 OK
+`GET /api/profiles?gender=male&country_id=NG&page=1&limit=10`
+
+#### Success response: `200 OK`
+
 ```json
 {
   "status": "success",
   "count": 2,
+  "page": 1,
+  "limit": 10,
+  "total": 2,
   "data": [
     {
       "id": "id-1",
@@ -180,22 +251,27 @@ Query parameters are case-insensitive.
       "gender": "male",
       "age": 25,
       "age_group": "adult",
-      "country_id": "NG"
+      "country_id": "NG",
+      "created_at": "2026-04-01T12:00:00Z"
     },
     {
       "id": "id-2",
-      "name": "sarah",
-      "gender": "female",
-      "age": 28,
+      "name": "daniel",
+      "gender": "male",
+      "age": 31,
       "age_group": "adult",
-      "country_id": "US"
+      "country_id": "NG",
+      "created_at": "2026-04-02T12:00:00Z"
     }
   ]
 }
 ```
 
-#### Error responses
-- `500 Internal Server Error` — unexpected failure
+#### Pagination rules
+
+- `page` starts at `1`
+- `limit` is capped to prevent large queries
+- `offset = (page - 1) * limit`
 
 ---
 
@@ -204,35 +280,89 @@ Query parameters are case-insensitive.
 
 Deletes a profile by ID.
 
-#### Success response: 204 No Content
-No body is returned.
+#### Success response: `204 No Content`
+
+No response body is returned.
 
 #### Error responses
-- `404 Not Found` — profile not found
-- `500 Internal Server Error` — unexpected failure
+
+- `404 Not Found` — profile does not exist
+- `422 Unprocessable Entity` — invalid ID format
 
 ---
 
-## Error response format
+## Natural Language Search
 
-All errors follow this structure:
+The project supports **rule-based parsing only** for profile search terms.
 
-```json
-{
-  "status": "error",
-  "message": "Error message here"
-}
-```
+### Examples
+
+- `young males from nigeria`
+- `women above 30 in kenya`
+- `boys from ghana`
+
+### Parsing rules
+
+The parser translates words into structured filters:
+
+- `males`, `men`, `boys` → `gender = male`
+- `females`, `women`, `girls` → `gender = female`
+- `young` → age range like `16–24`
+- `above 30` → `min_age = 30`
+- country names are mapped to ISO alpha-2 country codes
+
+### Important
+
+- No AI/LLM is used
+- Parsing is done with regex and token-based rules
+- Parsed output is converted into validated query filters
 
 ---
 
-## Environment variables
+## Strong Typing
 
-This project uses environment variables for configuration.
+This codebase is designed to be type-safe from request to database.
+
+### Hono bindings
+
+The app is initialized with typed Cloudflare bindings so `c.env.DB` is recognized by TypeScript.
+
+### Zod validation
+
+All external input should pass through Zod schemas before reaching business logic.
+
+This ensures that:
+
+- invalid query params return errors
+- query values are coerced safely
+- route handlers receive typed input
+- responses can stay consistent
+
+### Drizzle typing
+
+Database rows are typed with Drizzle’s inferred models, which helps keep DB results aligned with the schema.
+
+---
+
+## Seed Strategy
+
+Seeding should be **idempotent**.
+
+That means:
+
+- running seed once inserts records
+- running seed again updates existing records instead of duplicating them
+
+Use **upsert** behavior for seed data so repeated runs are safe.
+
+---
+
+## Environment Variables
 
 ### Required
+
 - `DATABASE_URL` — database connection string
-- `NODE_ENV` — runtime environment (`development`, `test`, or `production`)
+- `NODE_ENV` — runtime environment
 
 Example:
 
@@ -243,136 +373,79 @@ NODE_ENV="development"
 
 ---
 
-## Tech stack
+## Tech Stack
 
 - **Runtime:** Bun
 - **Framework:** Hono
-- **Database:** PostgreSQL
+- **Database:** Cloudflare D1
 - **ORM:** Drizzle ORM
 - **Validation:** Zod
+- **Deployment:** Cloudflare Workers
 
 ---
 
 ## Development
 
 ### Install dependencies
+
 ```sh
 bun install
 ```
 
-### Run the app locally
+### Generate migrations
+
+```sh
+bun run db:generate
+```
+
+### Apply migrations
+
+```sh
+bun run db:migrate
+```
+
+### Start local development
+
 ```sh
 bun run dev
 ```
 
-### Database commands
-```sh
-bun run db:generate
-bun run db:migrate
-bun run db:push
-bun run db:studio
-```
-
----
-
-## Notes
-
-- All timestamps are returned in UTC ISO 8601 format.
-- All IDs are UUID v7.
-- CORS is enabled with `Access-Control-Allow-Origin: *`.
-- External APIs are called in parallel to reduce request time.
-- Duplicate profile creation is prevented by checking the normalized name.
-
----
-
-## Project structure
-
-- `src/index.ts` — app entry point and route registration
-- `src/controllers/` — reusable HTTP controllers
-- `src/repository.ts` — database access layer
-- `src/utils/` — shared utilities
-- `src/db/` — database schema and client
-- `src/lib/` — external API and validation logic
-
----
-
-## Submission
-
-This repository is prepared for **HNG Task 1**.
-
-Make sure to deploy the API and submit:
-
-- your live base URL
-- your GitHub repository link
-
-## Deployment on Cloudflare Workers
-
-This app can be deployed to **Cloudflare Workers** using **Cloudflare D1** as the database.
-
-### D1 setup
-
-Create a D1 database in Cloudflare and bind it to the Worker as `DB`.
-
-Example `wrangler` commands:
+### Run Cloudflare Worker locally
 
 ```sh
-wrangler d1 create hng-task-1-db
-wrangler d1 execute hng-task-1-db --file=./src/db/migrations/0001_initial.sql
+bun run dev:worker
 ```
 
-Then update `wrangler.toml` with the real `database_id` from Cloudflare.
-
-### Worker setup
-- Entry point: `src/index.ts`
-- Runtime: Hono running on Cloudflare Workers
-- Compatibility: enable `nodejs_compat` if you use any Node-style APIs
-
-### Wrangler config
-Use a `wrangler.toml` file similar to:
-
-```/dev/null/wrangler.toml#L1-12
-name = "hng-task-1"
-main = "src/index.ts"
-compatibility_date = "2026-04-17"
-compatibility_flags = ["nodejs_compat"]
-
-[[d1_databases]]
-binding = "DB"
-database_name = "hng-task-1-db"
-database_id = "YOUR_D1_DATABASE_ID"
-
-[vars]
-NODE_ENV = "production"
-```
-
-### Environment variables
-Set the following in Cloudflare:
-- `NODE_ENV`
-
-### D1 binding
-Bind your D1 database to the Worker as:
-- `DB`
-
-### Local testing
-For local development, you can use Wrangler to run the Worker against D1:
+### Deploy
 
 ```sh
-wrangler dev
+bun run deploy
 ```
-
-### Deploy steps
-1. Create a Cloudflare D1 database
-2. Bind it in `wrangler.toml`
-3. Run the worker locally with `wrangler dev`
-4. Deploy with `wrangler deploy`
-
-### Notes
-- CORS is enabled for `Access-Control-Allow-Origin: *`
-- The app returns JSON responses for all endpoints
-- Database access uses Drizzle ORM with Cloudflare D1
 
 ---
 
-## License
+## Error Response Format
 
-This project is provided for HNG task submission and learning purposes.
+All error responses follow this structure:
+
+```json
+{
+  "status": "error",
+  "message": "Error message here"
+}
+```
+
+---
+
+## Notes for Contributors
+
+When extending the project:
+
+- keep route handlers thin
+- add new business rules in services
+- put DB queries in repositories
+- validate all inputs with Zod
+- prefer typed helpers over ad hoc logic
+- keep the architecture modular
+
+This makes the backend easier to maintain and much more scalable over time.

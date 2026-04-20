@@ -1,175 +1,62 @@
 import type { Context } from "hono";
-import { buildExternalProfileData } from "../lib/external-apis";
-import { createProfileRequestSchema } from "../lib/schemas";
 import {
-  createProfile,
-  deleteProfileById,
-  findProfileById,
-  findProfileByName,
-  findProfiles,
-  type NewProfileRecord,
-  type ProfileRecord,
-} from "../repository";
-import { createUuidV7, normalizeName } from "../utils";
+  createProfileService,
+  deleteProfileService,
+  getProfileByIdService,
+  listProfilesService,
+  type ApiError,
+  type ApiSuccess,
+  type ProfileResponse,
+  type WorkerEnv,
+} from "../services/profile.service";
+import {
+  profileParamsSchema,
+  profileQuerySchema,
+  type ProfileQuery,
+} from "../schemas/profile.schema";
+import { parseProfileQuery } from "../parsers/profile-query.parser";
 
-type ApiSuccess<T> = {
-  status: "success";
-  data: T;
-};
-
-type ApiSuccessWithMessage<T> = {
-  status: "success";
-  message: string;
-  data: T;
-};
-
-type ApiError = {
-  status: "error";
-  message: string;
-};
-
-type ProfileResponse = {
-  id: string;
-  name: string;
-  gender: string;
-  gender_probability: number;
-  sample_size: number;
-  age: number;
-  age_group: string;
-  country_id: string;
-  country_probability: number;
-  created_at: string;
-};
-
-type ProfileListItem = {
-  id: string;
-  name: string;
-  gender: string;
-  age: number;
-  age_group: string;
-  country_id: string;
-};
-
-type WorkerEnv = {
-  DB: D1Database;
-};
-
-function toProfileResponse(profile: ProfileRecord): ProfileResponse {
+function toErrorResponse(message: string): ApiError {
   return {
-    id: profile.id,
-    name: profile.name,
-    gender: profile.gender,
-    gender_probability: profile.genderProbability,
-    sample_size: profile.sampleSize,
-    age: profile.age,
-    age_group: profile.ageGroup,
-    country_id: profile.countryId,
-    country_probability: profile.countryProbability,
-    created_at: profile.createdAt,
+    status: "error",
+    message,
   };
 }
 
-function toProfileListItem(profile: ProfileRecord): ProfileListItem {
-  return {
-    id: profile.id,
-    name: profile.name,
-    gender: profile.gender,
-    age: profile.age,
-    age_group: profile.ageGroup,
-    country_id: profile.countryId,
-  };
-}
-
-function isApiError(
+function isAppError(
   error: unknown,
-): error is { status: "error"; message: string; code: number } {
+): error is { status: "error"; message: string; code?: number } {
   return (
     typeof error === "object" &&
     error !== null &&
-    "code" in error &&
-    "message" in error
+    "status" in error &&
+    "message" in error &&
+    (error as { status?: unknown }).status === "error"
   );
 }
 
-const profileCache = new Map<string, ProfileResponse>();
-const inFlightProfileCreations = new Map<string, Promise<ProfileResponse>>();
+function buildProfileFilters(query: ProfileQuery) {
+  return {
+    gender: query.gender,
+    countryId: query.country_id,
+    ageGroup: query.age_group,
+    minAge: query.min_age,
+    maxAge: query.max_age,
+  };
+}
 
-async function createOrGetProfile(env: WorkerEnv, rawName: string) {
-  const normalizedName = normalizeName(rawName);
+function buildPagination(query: ProfileQuery) {
+  return {
+    page: query.page,
+    limit: query.limit,
+  };
+}
 
-  const cached = profileCache.get(normalizedName);
-  if (cached) {
-    return {
-      alreadyExists: true,
-      profile: {
-        ...cached,
-        name: rawName,
-      },
-    };
-  }
-
-  const existing = await findProfileByName(env, normalizedName);
-  if (existing) {
-    const response = toProfileResponse(existing);
-    profileCache.set(normalizedName, response);
-
-    return {
-      alreadyExists: true,
-      profile: {
-        ...response,
-        name: rawName,
-      },
-    };
-  }
-
-  const existingInFlight = inFlightProfileCreations.get(normalizedName);
-  if (existingInFlight) {
-    const profile = await existingInFlight;
-    return {
-      alreadyExists: true,
-      profile: {
-        ...profile,
-        name: rawName,
-      },
-    };
-  }
-
-  const creationPromise = (async () => {
-    const externalData = await buildExternalProfileData(normalizedName);
-
-    const newProfile: NewProfileRecord = {
-      id: createUuidV7(),
-      name: normalizedName,
-      gender: externalData.gender,
-      genderProbability: externalData.genderProbability,
-      sampleSize: externalData.sampleSize,
-      age: externalData.age,
-      ageGroup: externalData.ageGroup,
-      countryId: externalData.countryId,
-      countryProbability: externalData.countryProbability,
-      createdAt: new Date().toISOString(),
-    };
-
-    const created = await createProfile(env, newProfile);
-    const response = toProfileResponse(created);
-    profileCache.set(normalizedName, response);
-    return response;
-  })();
-
-  inFlightProfileCreations.set(normalizedName, creationPromise);
-
-  try {
-    const profile = await creationPromise;
-    return {
-      alreadyExists: false,
-      profile: {
-        ...profile,
-        name: rawName,
-      },
-    };
-  } finally {
-    inFlightProfileCreations.delete(normalizedName);
-  }
+function buildSort(query: ProfileQuery) {
+  return {
+    sortBy: query.sort_by,
+    sortOrder: query.order,
+  };
 }
 
 export async function createProfileController(
@@ -177,140 +64,113 @@ export async function createProfileController(
 ) {
   try {
     const body = await c.req.json().catch(() => null);
-    const parsed = createProfileRequestSchema.safeParse(body);
-
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      const status = issue?.code === "invalid_type" ? 422 : 400;
-
-      return c.json<ApiError>(
-        {
-          status: "error",
-          message: issue?.message ?? "Invalid request body",
-        },
-        status,
-      );
-    }
-
-    const rawName = parsed.data.name;
-    const name = normalizeName(rawName);
-
-    if (!name) {
-      return c.json<ApiError>(
-        {
-          status: "error",
-          message: "Missing or empty name",
-        },
-        400,
-      );
-    }
-
-    const result = await createOrGetProfile(c.env, rawName);
-
-    if (result.alreadyExists) {
-      return c.json<ApiSuccessWithMessage<ProfileResponse>>(
-        {
-          status: "success",
-          message: "Profile already exists",
-          data: result.profile,
-        },
-        200,
-      );
-    }
+    const profile = await createProfileService(c.env, body);
 
     return c.json<ApiSuccess<ProfileResponse>>(
       {
         status: "success",
-        data: result.profile,
+        data: profile,
       },
       201,
     );
   } catch (error) {
-    if (isApiError(error)) {
+    if (isAppError(error)) {
+      const status = typeof error.code === "number" ? error.code : 400;
       return c.json<ApiError>(
-        {
-          status: "error",
-          message: error.message,
-        },
-        error.code as 400 | 401 | 403 | 404 | 409 | 422 | 500 | 502,
+        toErrorResponse(error.message),
+        status as 400 | 422 | 500,
       );
     }
 
     console.error(error);
-    return c.json<ApiError>(
-      {
-        status: "error",
-        message: "Internal server error",
-      },
-      500,
-    );
+    return c.json<ApiError>(toErrorResponse("Internal server error"), 500);
   }
 }
 
 export async function getProfileByIdController(
   c: Context<{ Bindings: WorkerEnv }>,
 ) {
-  const id = c.req.param("id")!;
+  try {
+    const parsed = profileParamsSchema.safeParse(c.req.param());
+    if (!parsed.success) {
+      return c.json<ApiError>(toErrorResponse("Invalid profile id"), 400);
+    }
 
-  const profile = await findProfileById(c.env, id);
+    const profile = await getProfileByIdService(c.env, parsed.data.id);
 
-  if (!profile) {
-    return c.json<ApiError>(
-      {
-        status: "error",
-        message: "Profile not found",
-      },
-      404,
-    );
+    if (!profile) {
+      return c.json<ApiError>(toErrorResponse("Profile not found"), 404);
+    }
+
+    return c.json<ApiSuccess<ProfileResponse>>({
+      status: "success",
+      data: profile,
+    });
+  } catch (error) {
+    console.error(error);
+    return c.json<ApiError>(toErrorResponse("Internal server error"), 500);
   }
-
-  return c.json<ApiSuccess<ProfileResponse>>({
-    status: "success",
-    data: toProfileResponse(profile),
-  });
 }
 
 export async function listProfilesController(
   c: Context<{ Bindings: WorkerEnv }>,
 ) {
-  const gender = c.req.query("gender");
-  const countryId = c.req.query("country_id");
-  const ageGroup = c.req.query("age_group");
+  try {
+    const parsed = profileQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return c.json<ApiError>(toErrorResponse("Invalid query parameters"), 422);
+    }
 
-  const rows = await findProfiles(c.env, {
-    gender: gender?.trim().toLowerCase(),
-    countryId: countryId?.trim().toLowerCase(),
-    ageGroup: ageGroup?.trim().toLowerCase() as
-      | "child"
-      | "teenager"
-      | "adult"
-      | "senior"
-      | undefined,
-  });
+    const query = parsed.data;
+    const naturalLanguage = query.q?.trim();
 
-  return c.json({
-    status: "success",
-    count: rows.length,
-    data: rows.map(toProfileListItem),
-  });
+    const parsedNaturalLanguage = naturalLanguage
+      ? parseProfileQuery(naturalLanguage)
+      : null;
+
+    const filters = {
+      ...buildProfileFilters(query),
+      ...(parsedNaturalLanguage?.filters ?? {}),
+    };
+
+    const pagination =
+      parsedNaturalLanguage?.pagination ?? buildPagination(query);
+    const sort = parsedNaturalLanguage?.sort ?? buildSort(query);
+
+    const result = await listProfilesService(c.env, filters, pagination, sort);
+
+    return c.json({
+      status: "success",
+      count: result.count,
+      page: result.page,
+      limit: result.limit,
+      total: result.total,
+      data: result.data,
+    });
+  } catch (error) {
+    console.error(error);
+    return c.json<ApiError>(toErrorResponse("Internal server error"), 500);
+  }
 }
 
 export async function deleteProfileController(
   c: Context<{ Bindings: WorkerEnv }>,
 ) {
-  const id = c.req.param("id")!;
+  try {
+    const parsed = profileParamsSchema.safeParse(c.req.param());
+    if (!parsed.success) {
+      return c.json<ApiError>(toErrorResponse("Invalid profile id"), 400);
+    }
 
-  const deleted = await deleteProfileById(c.env, id);
+    const deleted = await deleteProfileService(c.env, parsed.data.id);
 
-  if (!deleted) {
-    return c.json<ApiError>(
-      {
-        status: "error",
-        message: "Profile not found",
-      },
-      404,
-    );
+    if (!deleted) {
+      return c.json<ApiError>(toErrorResponse("Profile not found"), 404);
+    }
+
+    return c.body(null, 204);
+  } catch (error) {
+    console.error(error);
+    return c.json<ApiError>(toErrorResponse("Internal server error"), 500);
   }
-
-  return c.body(null, 204);
 }
