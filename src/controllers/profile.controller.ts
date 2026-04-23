@@ -118,7 +118,7 @@ export async function listProfilesController(
   try {
     const parsed = profileQuerySchema.safeParse(c.req.query());
     if (!parsed.success) {
-      return c.json<ApiError>(toErrorResponse("Invalid query parameters"), 422);
+      return c.json<ApiError>(toErrorResponse("Invalid query parameters"), 400);
     }
 
     const query = parsed.data;
@@ -127,6 +127,10 @@ export async function listProfilesController(
     const parsedNaturalLanguage = naturalLanguage
       ? parseProfileQuery(naturalLanguage)
       : null;
+
+    if (parsedNaturalLanguage?.isUninterpretable) {
+      return c.json<ApiError>(toErrorResponse("Invalid query parameters"), 400);
+    }
 
     const filters = {
       ...buildProfileFilters(query),

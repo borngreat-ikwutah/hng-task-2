@@ -2,6 +2,7 @@ import type {
   ProfileFilters,
   PaginationOptions,
   SortOptions,
+  AgeGroup,
 } from "../repositories/profile.repository";
 
 export type ParsedProfileQuery = {
@@ -99,17 +100,26 @@ function extractCountry(input: string): string | undefined {
 }
 
 function extractGender(input: string): "male" | "female" | undefined {
+  let hasMale = false;
+  let hasFemale = false;
+
   for (const word of MALE_WORDS) {
     if (new RegExp(`\\b${escapeRegExp(word)}\\b`, "i").test(input)) {
-      return "male";
+      hasMale = true;
+      break;
     }
   }
 
   for (const word of FEMALE_WORDS) {
     if (new RegExp(`\\b${escapeRegExp(word)}\\b`, "i").test(input)) {
-      return "female";
+      hasFemale = true;
+      break;
     }
   }
+
+  if (hasMale && hasFemale) return undefined;
+  if (hasMale) return "male";
+  if (hasFemale) return "female";
 
   return undefined;
 }
@@ -151,6 +161,14 @@ function extractAgeRange(input: string): {
   return result;
 }
 
+function extractAgeGroup(input: string): AgeGroup | undefined {
+  if (/\b(child|children|kid|kids)\b/.test(input)) return "child";
+  if (/\b(teenager|teenagers|teen|teens)\b/.test(input)) return "teenager";
+  if (/\b(adult|adults|grownup|grownups)\b/.test(input)) return "adult";
+  if (/\b(senior|seniors|elderly|old)\b/.test(input)) return "senior";
+  return undefined;
+}
+
 function extractPage(input: string): number | undefined {
   const match = input.match(/\bpage\s+(\d{1,4})\b/);
   return match?.[1] ? Number(match[1]) : undefined;
@@ -161,7 +179,7 @@ function extractLimit(input: string): number | undefined {
   return match?.[1] ? Number(match[1]) : undefined;
 }
 
-function extractSort(input: string): SortOptions {
+function extractSort(input: string): SortOptions | undefined {
   if (/\b(age|oldest|youngest)\b/.test(input)) {
     return {
       sortBy: "age",
@@ -178,19 +196,24 @@ function extractSort(input: string): SortOptions {
     };
   }
 
-  return {
-    sortBy: "created_at",
-    sortOrder: /\b(asc|ascending|oldest|earliest)\b/.test(input)
-      ? "asc"
-      : "desc",
-  };
+  if (/\b(newest|latest|most recent|created)\b/.test(input)) {
+    return {
+      sortBy: "created_at",
+      sortOrder: "desc",
+    };
+  }
+
+  return undefined;
 }
 
-export function parseProfileQuery(input: string): ParsedProfileQuery {
+export function parseProfileQuery(
+  input: string,
+): ParsedProfileQuery & { isUninterpretable: boolean } {
   const normalized = normalizeInput(input);
 
   const gender = extractGender(normalized);
   const countryId = extractCountry(normalized);
+  const ageGroup = extractAgeGroup(normalized);
   const ageRange = extractAgeRange(normalized);
   const page = extractPage(normalized);
   const limit = extractLimit(normalized);
@@ -199,9 +222,20 @@ export function parseProfileQuery(input: string): ParsedProfileQuery {
   const filters: ProfileFilters = {
     ...(gender ? { gender } : {}),
     ...(countryId ? { countryId } : {}),
+    ...(ageGroup ? { ageGroup } : {}),
     ...(ageRange.minAge !== undefined ? { minAge: ageRange.minAge } : {}),
     ...(ageRange.maxAge !== undefined ? { maxAge: ageRange.maxAge } : {}),
   };
+
+  const hasAnyMatch =
+    gender !== undefined ||
+    countryId !== undefined ||
+    ageGroup !== undefined ||
+    ageRange.minAge !== undefined ||
+    ageRange.maxAge !== undefined ||
+    page !== undefined ||
+    limit !== undefined ||
+    sort !== undefined;
 
   return {
     filters,
@@ -209,6 +243,7 @@ export function parseProfileQuery(input: string): ParsedProfileQuery {
       page: page ?? 1,
       limit: limit ?? 10,
     },
-    sort,
+    sort: sort ?? { sortBy: "created_at", sortOrder: "desc" },
+    isUninterpretable: !hasAnyMatch && input.trim().length > 0,
   };
 }

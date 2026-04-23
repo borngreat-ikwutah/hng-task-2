@@ -23,7 +23,7 @@ const listProfilesQuerySchema = z.object({
   min_age: z.coerce.number().int().min(0).max(150).optional(),
   max_age: z.coerce.number().int().min(0).max(150).optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
+  limit: z.coerce.number().int().min(1).default(10),
   sort_by: z
     .enum(["created_at", "age", "gender_probability"])
     .default("created_at"),
@@ -32,20 +32,64 @@ const listProfilesQuerySchema = z.object({
 });
 
 export const profilesRoute = new Hono()
-  .post("/", zValidator("json", profileBodySchema), createProfileController)
+  .post(
+    "/",
+    zValidator("json", profileBodySchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          {
+            status: "error",
+            message: "Invalid request body",
+          },
+          422,
+        );
+      }
+    }),
+    createProfileController,
+  )
   .get(
     "/",
-    zValidator("query", listProfilesQuerySchema),
+    zValidator("query", listProfilesQuerySchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          {
+            status: "error",
+            message: "Invalid query parameters",
+          },
+          400,
+        );
+      }
+    }),
     listProfilesController,
   )
   .get(
     "/:id",
-    zValidator("param", profileIdParamSchema),
+    zValidator("param", profileIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          {
+            status: "error",
+            message: "Invalid profile id",
+          },
+          400,
+        );
+      }
+    }),
     getProfileByIdController,
   )
   .delete(
     "/:id",
-    zValidator("param", profileIdParamSchema),
+    zValidator("param", profileIdParamSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(
+          {
+            status: "error",
+            message: "Invalid profile id",
+          },
+          400,
+        );
+      }
+    }),
     deleteProfileController,
   );
 

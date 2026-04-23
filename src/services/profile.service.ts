@@ -186,13 +186,14 @@ export async function listProfilesService(
   sort: ProfileListSort = {},
 ): Promise<ProfileListResponse> {
   const result = await listProfiles(env, filters, pagination, sort);
+  const data = result.data.map(toProfileListItem);
   return {
     status: "success",
-    count: result.total,
+    count: data.length,
     page: result.page,
     limit: result.limit,
     total: result.total,
-    data: result.data.map(toProfileListItem),
+    data,
   };
 }
 

@@ -42,7 +42,7 @@ app.onError((err, c) => {
         status: "error",
         message: "Invalid query parameters",
       },
-      422,
+      400,
     );
   }
 

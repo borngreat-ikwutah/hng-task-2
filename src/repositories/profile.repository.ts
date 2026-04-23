@@ -69,15 +69,15 @@ function buildConditions(filters: ProfileFilters) {
   const conditions: any[] = [];
 
   if (filters.gender) {
-    conditions.push(equalsInsensitive(profiles.gender, filters.gender));
+    conditions.push(eq(profiles.gender, filters.gender));
   }
 
   if (filters.countryId) {
-    conditions.push(equalsInsensitive(profiles.countryId, filters.countryId));
+    conditions.push(eq(profiles.countryId, filters.countryId));
   }
 
   if (filters.ageGroup) {
-    conditions.push(equalsInsensitive(profiles.ageGroup, filters.ageGroup));
+    conditions.push(eq(profiles.ageGroup, filters.ageGroup));
   }
 
   if (typeof filters.minAge === "number") {
@@ -201,7 +201,7 @@ export async function listProfiles(
   const db = getDb(env);
 
   const page = Math.max(1, pagination.page ?? 1);
-  const limit = Math.max(1, Math.min(100, pagination.limit ?? 10));
+  const limit = Math.max(1, Math.min(50, pagination.limit ?? 10));
   const offset = (page - 1) * limit;
 
   const conditions = buildConditions(filters);
