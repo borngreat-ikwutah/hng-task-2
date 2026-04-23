@@ -137,9 +137,8 @@ export async function listProfilesController(
       ...(parsedNaturalLanguage?.filters ?? {}),
     };
 
-    const pagination =
-      parsedNaturalLanguage?.pagination ?? buildPagination(query);
-    const sort = parsedNaturalLanguage?.sort ?? buildSort(query);
+    const pagination = buildPagination(query);
+    const sort = buildSort(query);
 
     const result = await listProfilesService(c.env, filters, pagination, sort);
 

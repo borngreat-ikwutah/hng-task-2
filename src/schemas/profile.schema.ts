@@ -25,7 +25,7 @@ export const profileQuerySchema = z.object({
   min_age: z.coerce.number().int().min(0).max(150).optional(),
   max_age: z.coerce.number().int().min(0).max(150).optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
+  limit: z.coerce.number().int().min(1).default(10),
   sort_by: sortBySchema.default("created_at"),
   order: sortOrderSchema.default("desc"),
   q: z.string().trim().min(1).optional(),
@@ -64,7 +64,7 @@ export const profileFilterSchema = z.object({
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
+  limit: z.coerce.number().int().min(1).default(10),
 });
 
 export type CreateProfileRequest = z.infer<typeof createProfileRequestSchema>;
