@@ -1,15 +1,4 @@
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  gte,
-  ilike,
-  lte,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { profiles } from "../db/schema";
 
@@ -27,7 +16,8 @@ export type ProfileFilters = {
   ageGroup?: AgeGroup;
   minAge?: number;
   maxAge?: number;
-  q?: string;
+  minGenderProbability?: number;
+  minCountryProbability?: number;
 };
 
 export type PaginationOptions = {
@@ -45,25 +35,11 @@ export type ProfileListResult = {
   total: number;
   page: number;
   limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
 };
 
 type DbEnv = {
   DB: D1Database;
 };
-
-function normalizeText(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function containsInsensitive(column: any, value: string) {
-  return ilike(column, `%${normalizeText(value)}%`);
-}
-
-function equalsInsensitive(column: any, value: string) {
-  return sql<boolean>`lower(${column}) = ${normalizeText(value)}`;
-}
 
 function buildConditions(filters: ProfileFilters) {
   const conditions: any[] = [];
@@ -88,15 +64,15 @@ function buildConditions(filters: ProfileFilters) {
     conditions.push(lte(profiles.age, filters.maxAge));
   }
 
-  if (filters.q && filters.q.trim()) {
-    const query = filters.q.trim();
+  if (typeof filters.minGenderProbability === "number") {
     conditions.push(
-      or(
-        containsInsensitive(profiles.name, query),
-        containsInsensitive(profiles.gender, query),
-        containsInsensitive(profiles.countryId, query),
-        containsInsensitive(profiles.ageGroup, query),
-      )!,
+      gte(profiles.genderProbability, filters.minGenderProbability),
+    );
+  }
+
+  if (typeof filters.minCountryProbability === "number") {
+    conditions.push(
+      gte(profiles.countryProbability, filters.minCountryProbability),
     );
   }
 
@@ -140,7 +116,7 @@ export async function findProfileByName(
   const rows = await db
     .select()
     .from(profiles)
-    .where(sql<boolean>`lower(${profiles.name}) = ${normalizeText(name)}`)
+    .where(sql<boolean>`lower(${profiles.name}) = ${name.trim().toLowerCase()}`)
     .limit(1);
   return rows[0];
 }
@@ -167,10 +143,10 @@ export async function upsertProfile(
       set: {
         gender: profile.gender,
         genderProbability: profile.genderProbability,
-        sampleSize: profile.sampleSize,
         age: profile.age,
         ageGroup: profile.ageGroup,
         countryId: profile.countryId,
+        countryName: profile.countryName,
         countryProbability: profile.countryProbability,
         createdAt: profile.createdAt,
       },
@@ -228,14 +204,11 @@ export async function listProfiles(
   const [data, totalResult] = await Promise.all([dataQuery, countQuery]);
 
   const total = totalResult[0]?.total ?? 0;
-  const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
 
   return {
     data,
     total,
     page,
     limit,
-    totalPages,
-    hasNextPage: page < totalPages,
   };
 }

@@ -34,27 +34,19 @@ export type ProfileResponse = {
   name: string;
   gender: string;
   gender_probability: number;
-  sample_size: number;
   age: number;
   age_group: string;
   country_id: string;
+  country_name: string;
   country_probability: number;
   created_at: string;
 };
 
-export type ProfileListItem = {
-  id: string;
-  name: string;
-  gender: string;
-  age: number;
-  age_group: string;
-  country_id: string;
-  created_at: string;
-};
+// Based on task description, the list items must are identical to full profiles
+export type ProfileListItem = ProfileResponse;
 
 export type ProfileListResponse = {
   status: "success";
-  count: number;
   page: number;
   limit: number;
   total: number;
@@ -81,23 +73,11 @@ function toProfileResponse(profile: ProfileRecord): ProfileResponse {
     name: profile.name,
     gender: profile.gender,
     gender_probability: profile.genderProbability,
-    sample_size: profile.sampleSize,
     age: profile.age,
     age_group: profile.ageGroup,
     country_id: profile.countryId,
+    country_name: profile.countryName,
     country_probability: profile.countryProbability,
-    created_at: profile.createdAt,
-  };
-}
-
-function toProfileListItem(profile: ProfileRecord): ProfileListItem {
-  return {
-    id: profile.id,
-    name: profile.name,
-    gender: profile.gender,
-    age: profile.age,
-    age_group: profile.ageGroup,
-    country_id: profile.countryId,
     created_at: profile.createdAt,
   };
 }
@@ -134,10 +114,10 @@ export async function createOrGetProfile(
     name: normalizedName,
     gender: externalData.gender,
     genderProbability: externalData.genderProbability,
-    sampleSize: externalData.sampleSize,
     age: externalData.age,
     ageGroup: externalData.ageGroup,
     countryId: externalData.countryId,
+    countryName: externalData.countryName,
     countryProbability: externalData.countryProbability,
     createdAt: new Date().toISOString(),
   };
@@ -186,10 +166,9 @@ export async function listProfilesService(
   sort: ProfileListSort = {},
 ): Promise<ProfileListResponse> {
   const result = await listProfiles(env, filters, pagination, sort);
-  const data = result.data.map(toProfileListItem);
+  const data = result.data.map(toProfileResponse);
   return {
     status: "success",
-    count: data.length,
     page: result.page,
     limit: result.limit,
     total: result.total,

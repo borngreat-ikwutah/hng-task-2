@@ -121,6 +121,7 @@ To support filtering efficiently, add indexes for:
 ## API Endpoints
 
 ### 1. Create Profile
+
 `POST /api/profiles`
 
 Creates a new profile from a submitted name.
@@ -182,6 +183,7 @@ Creates a new profile from a submitted name.
 ---
 
 ### 2. Get Profile by ID
+
 `GET /api/profiles/{id}`
 
 Returns a single profile by ID.
@@ -214,6 +216,7 @@ Returns a single profile by ID.
 ---
 
 ### 3. List Profiles
+
 `GET /api/profiles`
 
 Returns a list of profiles with typed filtering and pagination.
@@ -276,6 +279,7 @@ Returns a list of profiles with typed filtering and pagination.
 ---
 
 ### 4. Delete Profile
+
 `DELETE /api/profiles/{id}`
 
 Deletes a profile by ID.
@@ -291,33 +295,31 @@ No response body is returned.
 
 ---
 
-## Natural Language Search
+## Natural Language Parsing
 
-The project supports **rule-based parsing only** for profile search terms.
+Our API supports a rule-based Natural Language Search engine.
 
-### Examples
+### How it works
 
-- `young males from nigeria`
-- `women above 30 in kenya`
-- `boys from ghana`
+The parser uses Tokenization and Regex-based extraction to map conversational language into structured `ProfileFilters`. It performs keyword classification sequentially without the need for LLMs or external dependencies:
 
-### Parsing rules
+1. **Gender Matching**: Tokens like `men`, `boys`, `male`, `guy` map to `gender: "male"`. Tokens like `women`, `girls`, `female`, `lady` map to `gender: "female"`.
+2. **Age Groups**:
+   - `young`, `youth`, `teenager`, `teen` -> `ageGroup: "teenager"` (or min max ranges depending on keyword context)
+   - `child`, `kid`, `baby`, `toddler` -> `ageGroup: "child"`
+   - `adult`, `grown` -> `ageGroup: "adult"`
+   - `senior`, `elder`, `old` -> `ageGroup: "senior"`
+3. **Exact Ranges and Comparisons**: Regex successfully extracts patterns like `above 30`, `over 18`, `> 25`, `older than 40` routing to `minAge`. Conversely `below 50`, `under 20`, `< 30` maps to `maxAge`. Number to words extraction is partially implemented but defaults to numeric parsing for absolute precision.
+4. **Country Inference**: Detects full country names or permutations (e.g., "Nigeria", "Kenyans") and dynamically evaluates against an internally mapped ISO-3166-1 alpha-2 dictionary to return valid `countryId`s correctly, dropping the need to exact match casing or suffixes.
 
-The parser translates words into structured filters:
+### Limitations & Edge Cases
 
-- `males`, `men`, `boys` → `gender = male`
-- `females`, `women`, `girls` → `gender = female`
-- `young` → age range like `16–24`
-- `above 30` → `min_age = 30`
-- country names are mapped to ISO alpha-2 country codes
+The rule-based approach trades off flexibility for zero-latency execution. As a result it doesn't handle all scenarios:
 
-### Important
-
-- No AI/LLM is used
-- Parsing is done with regex and token-based rules
-- Parsed output is converted into validated query filters
-
----
+- **Complex logic**: Nested conjunctions ("males from Nigeria AND females from Kenya") or exclusionary filters ("anyone not from Ghana") are uninterpretable by standard lexical scanning and will fail to construct compound filters.
+- **Ambiguous definitions**: Queries heavily relying on subjective language like "middle-aged" or "millennials" do not safely map without overlapping definitions, returning `400 Bad Request` or being ignored to prevent misclassification.
+- **Spelling Mistakes**: Strict token checking lacks Levenshtein distance matching. `femail from Ngeria` will fail to correctly map parameters.
+- **Compound attributes**: Fails on joined characteristics that don't match individual tokens ("Africans" or "GenZ").
 
 ## Strong Typing
 

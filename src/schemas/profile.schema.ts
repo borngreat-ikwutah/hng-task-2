@@ -24,6 +24,8 @@ export const profileQuerySchema = z.object({
   age_group: ageGroupSchema.optional(),
   min_age: z.coerce.number().int().min(0).max(150).optional(),
   max_age: z.coerce.number().int().min(0).max(150).optional(),
+  min_gender_probability: z.coerce.number().min(0).max(1).optional(),
+  min_country_probability: z.coerce.number().min(0).max(1).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).default(10),
   sort_by: sortBySchema.default("created_at"),
@@ -36,23 +38,16 @@ export const profileSchema = z.object({
   name: z.string(),
   gender: genderSchema,
   gender_probability: z.number(),
-  sample_size: z.number(),
   age: z.number(),
   age_group: ageGroupSchema,
   country_id: z.string(),
+  country_name: z.string(),
   country_probability: z.number(),
   created_at: z.string(),
 });
 
-export const profileListItemSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  gender: genderSchema,
-  age: z.number(),
-  age_group: ageGroupSchema,
-  country_id: z.string(),
-  created_at: z.string(),
-});
+// The task requires the list response to contain all properties
+export const profileListItemSchema = profileSchema;
 
 export const profileFilterSchema = z.object({
   gender: genderSchema.optional(),
@@ -60,6 +55,8 @@ export const profileFilterSchema = z.object({
   ageGroup: ageGroupSchema.optional(),
   minAge: z.coerce.number().int().min(0).max(150).optional(),
   maxAge: z.coerce.number().int().min(0).max(150).optional(),
+  minGenderProbability: z.number().min(0).max(1).optional(),
+  minCountryProbability: z.number().min(0).max(1).optional(),
 });
 
 export const paginationSchema = z.object({

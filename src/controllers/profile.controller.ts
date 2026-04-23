@@ -42,6 +42,8 @@ function buildProfileFilters(query: ProfileQuery) {
     ageGroup: query.age_group,
     minAge: query.min_age,
     maxAge: query.max_age,
+    minGenderProbability: query.min_gender_probability,
+    minCountryProbability: query.min_country_probability,
   };
 }
 
@@ -122,16 +124,54 @@ export async function listProfilesController(
     }
 
     const query = parsed.data;
-    const naturalLanguage = query.q?.trim();
+    const filters = buildProfileFilters(query);
+    const pagination = buildPagination(query);
+    const sort = buildSort(query);
 
-    const parsedNaturalLanguage = naturalLanguage
-      ? parseProfileQuery(naturalLanguage)
-      : null;
+    const result = await listProfilesService(c.env, filters, pagination, sort);
 
-    if (parsedNaturalLanguage?.isUninterpretable) {
+    return c.json({
+      status: "success",
+      page: result.page,
+      limit: result.limit,
+      total: result.total,
+      data: result.data,
+    });
+  } catch (error) {
+    console.error(error);
+    return c.json<ApiError>(toErrorResponse("Internal server error"), 500);
+  }
+}
+
+export async function searchProfilesController(
+  c: Context<{ Bindings: WorkerEnv }>,
+) {
+  try {
+    const parsed = profileQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
       return c.json<ApiError>(toErrorResponse("Invalid query parameters"), 400);
     }
 
+    const query = parsed.data;
+    const naturalLanguage = query.q?.trim();
+
+    if (!naturalLanguage) {
+      return c.json<ApiError>(
+        toErrorResponse("Unable to interpret query"),
+        400,
+      );
+    }
+
+    const parsedNaturalLanguage = parseProfileQuery(naturalLanguage);
+
+    if (parsedNaturalLanguage.isUninterpretable) {
+      return c.json<ApiError>(
+        toErrorResponse("Unable to interpret query"),
+        400,
+      );
+    }
+
+    // Merge baseline query filters and what parsed from NLP
     const filters = {
       ...buildProfileFilters(query),
       ...(parsedNaturalLanguage?.filters ?? {}),
@@ -144,7 +184,6 @@ export async function listProfilesController(
 
     return c.json({
       status: "success",
-      count: result.count,
       page: result.page,
       limit: result.limit,
       total: result.total,

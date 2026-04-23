@@ -40,6 +40,7 @@ export type ExternalProfileData = {
   age: number;
   ageGroup: "child" | "teenager" | "adult" | "senior";
   countryId: string;
+  countryName: string;
   countryProbability: number;
 };
 
@@ -166,6 +167,14 @@ export async function buildExternalProfileData(
     throw invalidResponseError("Nationalize");
   }
 
+  let countryName = topCountry.countryId;
+  try {
+    const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+    countryName = regionNames.of(topCountry.countryId) || topCountry.countryId;
+  } catch (e) {
+    // ignore
+  }
+
   return {
     name: genderize.name,
     gender: genderize.gender,
@@ -174,6 +183,7 @@ export async function buildExternalProfileData(
     age: agify.age,
     ageGroup: classifyAge(agify.age),
     countryId: topCountry.countryId,
+    countryName,
     countryProbability: topCountry.probability,
   };
 }
